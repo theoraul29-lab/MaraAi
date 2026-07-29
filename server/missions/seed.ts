@@ -158,7 +158,7 @@ export function seedMissionTranslations(): void {
   const insertAll = rawSqlite.transaction(() => {
     for (const bundle of bundles) {
       const lang = bundle.lang.split('-')[0].toLowerCase();
-      if (!lang || lang === 'ro') continue;
+      if (!lang || lang === 'en') continue; // English is the canonical source
       for (const [missionId, entry] of Object.entries(bundle.missions)) {
         const currentHash = hashById.get(missionId);
         if (!currentHash) continue; // mission no longer exists in the catalogue
