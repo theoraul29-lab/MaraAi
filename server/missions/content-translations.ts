@@ -4,11 +4,12 @@
 // mission_translations table at startup (see seedMissionTranslations below) so
 // missions render in the user's language WITHOUT any live LLM call at runtime.
 //
-// Each bundle entry stores a `source_hash` derived from the Romanian source
-// (identical to missionContentHash in content.ts). A bundle entry whose stored
-// hash no longer matches the current mission text is stale and is skipped, so
-// the runtime translateMissions() fallback can regenerate it if an LLM is
-// available — otherwise the user sees the original Romanian for that mission.
+// Each bundle entry stores a `source_hash` derived from the canonical English
+// source (identical to missionContentHash in content.ts). A bundle entry whose
+// stored hash no longer matches the current mission text is stale and is
+// skipped, so the runtime translateMissions() fallback can regenerate it if an
+// LLM is available — otherwise the user sees the original English for that
+// mission.
 import { readdirSync, readFileSync } from 'fs';
 import { fileURLToPath } from 'url';
 import { dirname, join } from 'path';

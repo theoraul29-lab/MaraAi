@@ -2,7 +2,7 @@
 /**
  * Build-time mission translator.
  *
- * Reads the Romanian-authored mission catalogue from
+ * Reads the English-authored (canonical source) mission catalogue from
  * `server/missions/content/missions.json` and produces one versionable
  * translation bundle per language under
  * `server/missions/content/translations/<lang>.json`.
@@ -14,8 +14,9 @@
  * The runtime LLM path in engine.ts remains only as a fallback for AI-generated
  * per-user personalized missions, which cannot be pre-translated.
  *
- * Translation pivots through English (LLMs translate EN→X more faithfully than
- * RO→X), mirroring the runtime translateMissions() logic.
+ * English is the canonical source, so every language is translated directly
+ * EN→X, mirroring the runtime translateMissions() logic. Romanian is just
+ * another target (ro.json).
  *
  * Provider selection mirrors the app's runtime provider-router: Ollama first
  * (local, no per-token cost — in line with the self-hosted AI strategy), with
@@ -227,10 +228,10 @@ async function main() {
   const force = args.includes('--force');
   const requested = args.filter((a) => !a.startsWith('--'));
   const targets = (requested.length > 0 ? requested : Object.keys(LANG_NAMES))
-    .filter((l) => l !== 'ro'); // Romanian is the source, never a translation target.
+    .filter((l) => l !== 'en'); // English is the canonical source, never a translation target.
 
   const missions = JSON.parse(readFileSync(join(CONTENT_DIR, 'missions.json'), 'utf8'));
-  const sourceRO = missions.map(sourceEntry);
+  const english = missions.map(sourceEntry);
   const hashById = new Map(missions.map((m) => [m.id, missionContentHash(m)]));
 
   if (!existsSync(OUT_DIR)) mkdirSync(OUT_DIR, { recursive: true });
@@ -239,21 +240,7 @@ async function main() {
   console.log(`Provider: ${provider.name} (${provider.model})`);
   console.log(`Translating ${missions.length} missions → ${targets.length} languages`);
 
-  // English is the pivot base for every other language.
-  let english = null;
-  const needEnglish = targets.includes('en') || targets.some((l) => l !== 'en');
-  if (needEnglish) {
-    console.log('\n[en] translating RO → English (pivot base)...');
-    const enMap = await translateAll(sourceRO, 'Romanian', 'English');
-    english = missions.map((m) => {
-      const t = enMap.get(m.id) ?? sourceEntry(m);
-      return { id: m.id, title: t.title, description: t.description, proof_prompt: t.proof_prompt, steps: t.steps, reflection: t.reflection };
-    });
-    if (targets.includes('en')) writeBundle('en', enMap, hashById, missions);
-  }
-
   for (const lang of targets) {
-    if (lang === 'en') continue;
     const outPath = join(OUT_DIR, `${lang}.json`);
     if (!force && existsSync(outPath) && isFresh(outPath, hashById)) {
       console.log(`\n[${lang}] up to date — skipping (use --force to regenerate)`);

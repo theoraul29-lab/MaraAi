@@ -1,7 +1,9 @@
 # Pre-generated mission translations
 
 Each `<lang>.json` file in this directory is a **committed translation bundle**
-for the mission catalogue authored in Romanian at `../missions.json`.
+for the mission catalogue authored in English (the canonical source language) at
+`../missions.json`. Romanian (`ro.json`) is shipped as a regular translation
+bundle just like every other language.
 
 These bundles are seeded into the `mission_translations` table at server
 startup (see `../../seed.ts` → `seedMissionTranslations()`), so missions render
@@ -12,7 +14,7 @@ deterministic, zero latency, zero per-request cost.
 
 The runtime `translateMissions()` in `../../engine.ts` calls the LLM on demand
 and caches the result. If no LLM provider is configured (or it errors/times
-out), it silently falls back to the original Romanian — which is why missions
+out), it silently falls back to the original English source — which is why missions
 could appear untranslated even after the user picked another language. Shipping
 the translations as committed data removes that dependency for the static
 catalogue. The runtime LLM path remains only as a fallback for AI-generated,
@@ -48,7 +50,7 @@ Then commit the resulting `<lang>.json` files.
 
 ## Staleness / editing
 
-Every bundle entry stores a `source_hash` derived from the Romanian source
+Every bundle entry stores a `source_hash` derived from the canonical English source
 (identical to `missionContentHash()` in `../../content.ts`). If you edit a
 mission's text in `missions.json`, its hash changes and the matching bundle
 entry becomes **stale**: the seed skips it (so users never see a translation

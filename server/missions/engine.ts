@@ -452,8 +452,9 @@ function parseSteps(stepsJson: string): string[] {
 /**
  * Build a rich, structured mission context string for Mara's system prompt.
  * Reads from the translation cache (sync — no LLM call) so it's fast enough
- * to include on every chat request.  Falls back to Romanian when a translation
- * hasn't been cached yet (warmTranslationCache() pre-fills at startup).
+ * to include on every chat request.  Falls back to the canonical English source
+ * when a translation hasn't been cached yet (warmTranslationCache() pre-fills at
+ * startup).
  */
 export function getMissionContextForMara(userId: string, lang?: string): string {
   try {
@@ -476,9 +477,9 @@ export function getMissionContextForMara(userId: string, lang?: string): string 
       status: string; started_at: number;
     }>;
 
-    // Apply cached translations if lang ≠ 'ro'
+    // Apply cached translations if lang ≠ 'en' (English is the canonical source)
     let activeFinal = activeMissions;
-    if (normalized !== 'ro' && activeMissions.length > 0) {
+    if (normalized !== 'en' && activeMissions.length > 0) {
       const ids = activeMissions.map(m => m.id);
       const placeholders = ids.map(() => '?').join(',');
       const translations = rawSqlite.prepare(`
@@ -565,7 +566,7 @@ export async function warmTranslationCache(langs: string[] = ['en']): Promise<vo
     const batch = langs.slice(i, i + BATCH_SIZE);
     await Promise.allSettled(batch.map(async (lang) => {
       const normalized = normalizeLang(lang);
-      if (normalized === 'ro') return;
+      if (normalized === 'en') return;
 
       // translateMissions is idempotent: it skips missions whose translation is
       // still valid (matching content_hash) and only calls the LLM for missing
@@ -595,20 +596,20 @@ type TranslatableMission = {
 /**
  * Translate mission text fields to the requested language using the LLM.
  * Results are cached in mission_translations so each mission/lang pair is
- * only translated once.  Falls back to original Romanian on any error.
+ * only translated once.  Falls back to the original English source on any error.
  */
 export async function translateMissions<T extends TranslatableMission>(
   missions: T[],
   lang: string,
 ): Promise<T[]> {
   const normalized = normalizeLang(lang);
-  if (!normalized || normalized === 'ro') return missions;
+  if (!normalized || normalized === 'en') return missions;
 
   if (missions.length === 0) return missions;
 
   const langName = LANG_NAMES[normalized] ?? normalized;
 
-  // Source hash per mission, derived from the authored Romanian text. A cached
+  // Source hash per mission, derived from the authored English text. A cached
   // translation whose stored hash no longer matches is stale (the mission was
   // edited in content/missions.json) and gets re-translated.
   const hashOf = new Map(missions.map(m => [m.id, missionContentHash(m)]));
@@ -635,16 +636,10 @@ export async function translateMissions<T extends TranslatableMission>(
   const toTranslate = missions.filter(m => !cacheMap.has(m.id));
 
   if (toTranslate.length > 0) {
-    // Pivot through English: LLMs translate EN→X more faithfully than RO→X.
-    // For any non-English target we first ensure English versions exist, then
-    // translate from those. English itself is translated directly from Romanian.
-    let sourceFromLang = 'Romanian';
-    let sourceById = new Map<string, TranslatableMission>(toTranslate.map(m => [m.id, m]));
-    if (normalized !== 'en') {
-      const enVersions = await translateMissions(toTranslate, 'en');
-      sourceFromLang = 'English';
-      sourceById = new Map(enVersions.map(m => [m.id, m]));
-    }
+    // English is the canonical source, so every other language is translated
+    // directly from the authored English text.
+    const sourceFromLang = 'English';
+    const sourceById = new Map<string, TranslatableMission>(toTranslate.map(m => [m.id, m]));
 
     const CHUNK = 10;
     const insertStmt = rawSqlite.prepare(
@@ -700,8 +695,8 @@ ${JSON.stringify(payload)}`;
           })();
         }
       } catch (err) {
-        // These missions fall back to the original Romanian for a non-Romanian
-        // user. Surface it so the silent fallback is visible (was invisible before).
+        // These missions fall back to the original English source for a
+        // non-English user. Surface it so the silent fallback is visible.
         console.warn(`[translateMissions] ${langName} chunk ${i}: ${(err as Error).message}`);
         captureException(err, {
           scope: 'translateMissions',
