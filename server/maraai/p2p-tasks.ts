@@ -23,6 +23,10 @@ import { db } from '../db.js';
 import { p2pTasks, userXp, type P2PTask, type P2PTaskType } from '../../shared/schema.js';
 import { awardCredits, CREDIT_AMOUNTS, CREDIT_REASONS } from './credits.js';
 import { logActivity } from './activity.js';
+import {
+  claimNextTaskAtomically,
+  completeTaskAtomically,
+} from '../modules/p2p-compute.js';
 
 // XP awarded per completed browser task.
 const XP_PER_TASK = 10;
@@ -106,8 +110,13 @@ async function recycleTimedOut(): Promise<void> {
   const cutoff = new Date(Date.now() - TASK_TIMEOUT_SEC * 1000);
   await db
     .update(p2pTasks)
-    .set({ status: 'pending', assignedNode: null, assignedUserId: null, assignedAt: null })
-    .where(and(eq(p2pTasks.status, 'assigned'), lt(p2pTasks.assignedAt, cutoff)));
+    .set({ status: 'pending', assignedNode: null, assignedUserId: null, claimedBy: null, assignedAt: null })
+    .where(
+      and(
+        sql`${p2pTasks.status} in ('running','assigned')`,
+        lt(p2pTasks.assignedAt, cutoff),
+      ),
+    );
 }
 
 /**
@@ -116,42 +125,8 @@ async function recycleTimedOut(): Promise<void> {
  */
 export async function getNextTask(nodeId: string, userId: string): Promise<AssignedTask | null> {
   await recycleTimedOut();
-
-  // Check if this node already holds a task.
-  const existing = (
-    await db
-      .select()
-      .from(p2pTasks)
-      .where(and(eq(p2pTasks.assignedNode, nodeId), eq(p2pTasks.status, 'assigned')))
-      .limit(1)
-  )[0];
-
-  if (existing) {
-    return {
-      taskId: existing.id,
-      type: existing.type as P2PTaskType,
-      payload: JSON.parse(existing.payload) as Record<string, unknown>,
-    };
-  }
-
-  // Claim the oldest pending task.
-  const next = (
-    await db
-      .select()
-      .from(p2pTasks)
-      .where(eq(p2pTasks.status, 'pending'))
-      .orderBy(p2pTasks.createdAt)
-      .limit(1)
-  )[0];
-
+  const next = claimNextTaskAtomically(nodeId, userId, TASK_TIMEOUT_SEC);
   if (!next) return null;
-
-  const now = new Date();
-  await db
-    .update(p2pTasks)
-    .set({ status: 'assigned', assignedNode: nodeId, assignedUserId: userId, assignedAt: now })
-    .where(and(eq(p2pTasks.id, next.id), eq(p2pTasks.status, 'pending')));
-
   return {
     taskId: next.id,
     type: next.type as P2PTaskType,
@@ -186,19 +161,30 @@ export async function submitTaskResult(input: SubmitResultInput): Promise<Submit
   )[0];
 
   if (!task) return { ok: false, xpGained: 0, creditsGained: 0, newXp: 0, newCredits: 0, message: 'Task not found.' };
-  if (task.status !== 'assigned') return { ok: false, xpGained: 0, creditsGained: 0, newXp: 0, newCredits: 0, message: 'Task already completed or not assigned.' };
+  if (!['running', 'assigned'].includes(task.status)) {
+    return { ok: false, xpGained: 0, creditsGained: 0, newXp: 0, newCredits: 0, message: 'Task already completed or not assigned.' };
+  }
   if (task.assignedNode !== input.nodeId) return { ok: false, xpGained: 0, creditsGained: 0, newXp: 0, newCredits: 0, message: 'Task assigned to a different node.' };
+  if ((task.claimedBy ?? task.assignedUserId) !== input.userId) {
+    return { ok: false, xpGained: 0, creditsGained: 0, newXp: 0, newCredits: 0, message: 'Task belongs to a different user.' };
+  }
 
   // Validate result is non-empty.
   if (!input.result || Object.keys(input.result).length === 0) {
     return { ok: false, xpGained: 0, creditsGained: 0, newXp: 0, newCredits: 0, message: 'Empty result.' };
   }
 
+  const updated = completeTaskAtomically({
+    taskId: input.taskId,
+    nodeId: input.nodeId,
+    userId: input.userId,
+    resultJson: JSON.stringify(input.result),
+  });
+  if (!updated) {
+    return { ok: false, xpGained: 0, creditsGained: 0, newXp: 0, newCredits: 0, message: 'Task claim is no longer valid.' };
+  }
+
   const now = new Date();
-  await db
-    .update(p2pTasks)
-    .set({ status: 'completed', result: JSON.stringify(input.result), completedAt: now })
-    .where(eq(p2pTasks.id, input.taskId));
 
   // Award XP — upsert userXp row.
   const xpRow = (await db.select().from(userXp).where(eq(userXp.userId, input.userId)).limit(1))[0];
@@ -248,6 +234,8 @@ export async function submitTaskResult(input: SubmitResultInput): Promise<Submit
   if (pendingCount < 3) {
     await ensureExampleTasks();
   }
+
+  notifyTaskWaiters(input.taskId, input.result);
 
   return {
     ok: true,
