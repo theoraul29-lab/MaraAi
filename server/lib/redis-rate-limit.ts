@@ -54,13 +54,13 @@ async function runCommand(redisUrl: URL, parts: string[]): Promise<RedisReply> {
         if (line.startsWith('$')) {
           const bulkLength = Number.parseInt(line.slice(1), 10);
           const payload = segments.shift() ?? '';
-          buffer = segments.join('\r\n');
           replies += 1;
           if (replies === expectedReplies) {
             socket.end();
             resolve(payload.slice(0, Math.max(0, bulkLength)));
+            return;
           }
-          return;
+          continue;
         }
 
         replies += 1;
@@ -93,11 +93,23 @@ export async function incrementRedisWindowCounter(
   const rawUrl = process.env.REDIS_URL;
   if (!rawUrl) return null;
 
-  const redisUrl = new URL(rawUrl);
-  const count = await runCommand(redisUrl, ['INCR', key]);
-  if (typeof count !== 'number' || !Number.isFinite(count)) return null;
-  if (count === 1) {
-    await runCommand(redisUrl, ['PEXPIRE', key, String(windowMs)]);
+  let redisUrl: URL;
+  try {
+    redisUrl = new URL(rawUrl);
+  } catch {
+    return null;
   }
+  const script =
+    "local c = redis.call('INCR', KEYS[1]); " +
+    "if c == 1 or redis.call('PTTL', KEYS[1]) == -1 then redis.call('PEXPIRE', KEYS[1], ARGV[1]) end; " +
+    'return c';
+  const count = await runCommand(redisUrl, [
+    'EVAL',
+    script,
+    '1',
+    key,
+    String(windowMs),
+  ]);
+  if (typeof count !== 'number' || !Number.isFinite(count)) return null;
   return count;
 }

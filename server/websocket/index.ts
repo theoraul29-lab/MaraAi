@@ -27,7 +27,7 @@ export function attachWebSocketServer(input: {
       if (process.env.NODE_ENV !== 'production' && allowedOrigins.length === 0) {
         return done(true);
       }
-      if (!origin || allowedOrigins.includes(origin)) {
+      if (origin && allowedOrigins.includes(origin)) {
         return done(true);
       }
       log(`WebSocket connection rejected from origin: ${origin}`, 'p2p-ws');
@@ -99,10 +99,6 @@ export function attachWebSocketServer(input: {
       void (async () => {
         if (!ws.userId) {
           ws.close(1008, 'Authentication required');
-          return;
-        }
-        if (message.length > MAX_MESSAGE_BYTES) {
-          ws.close(1009, 'Message too large');
           return;
         }
 

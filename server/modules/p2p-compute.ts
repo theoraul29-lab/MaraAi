@@ -76,6 +76,8 @@ const claimTaskTxn = rawSqlite.transaction((nodeId: string, userId: string, assi
 
   const result = claimTaskStmt.run(nodeId, userId, userId, assignedAt, next.id);
   if (result.changes !== 1) {
+    // Another node won the optimistic claim guard. We deliberately return null
+    // instead of retrying immediately to avoid hot-loop retry storms under load.
     return null;
   }
 

@@ -1,4 +1,4 @@
-import { and, eq, or } from 'drizzle-orm';
+import { and, eq, or, sql } from 'drizzle-orm';
 import { z } from 'zod';
 import { db } from '../db.js';
 import { getConsent } from '../maraai/consent.js';
@@ -44,7 +44,7 @@ async function usersHaveValidP2PRelationship(userId: string, targetUserId: strin
       )
       .limit(1),
     db
-      .select({ userId: userMissions.userId, missionId: userMissions.missionId })
+      .select({ missionId: userMissions.missionId })
       .from(userMissions)
       .where(
         and(
@@ -52,22 +52,14 @@ async function usersHaveValidP2PRelationship(userId: string, targetUserId: strin
           or(eq(userMissions.status, 'active'), eq(userMissions.status, 'completed')),
         ),
       )
-      .limit(20),
+      .groupBy(userMissions.missionId)
+      .having(sql`count(distinct ${userMissions.userId}) = 2`)
+      .limit(1),
   ]);
 
   if (mutualFollow.length > 0) return true;
   if (conversation.length > 0) return true;
-
-  const missionParticipants = new Map<string, Set<string>>();
-  for (const row of sharedMission) {
-    const participants = missionParticipants.get(row.missionId) ?? new Set<string>();
-    participants.add(row.userId);
-    missionParticipants.set(row.missionId, participants);
-  }
-  for (const participants of missionParticipants.values()) {
-    if (participants.has(userId) && participants.has(targetUserId)) return true;
-  }
-  return false;
+  return sharedMission.length > 0;
 }
 
 function sendSecurityError(ws: UserSocket, message: string): void {

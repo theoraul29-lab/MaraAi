@@ -40,8 +40,7 @@ function isPrivateIpv6(ip: string): boolean {
   return (
     normalized === '::1' ||
     normalized === '::' ||
-    normalized.startsWith('fc') ||
-    normalized.startsWith('fd') ||
+    /^f[cd][0-9a-f]{2}:/i.test(normalized) ||
     normalized.startsWith('fe80:')
   );
 }
