@@ -11,6 +11,7 @@ import { users } from '../../shared/schema.js';
 import { setSessionUser } from '../modules/auth-api.js';
 import {
   getConsent,
+  requireConsent,
   updateConsent,
   isMaraMode,
   type ConsentUpdate,
@@ -228,7 +229,7 @@ export function registerMaraAIRoutes(
     .strict();
 
   /** GET /api/p2p/get-task — browser node polls for available work. */
-  app.get('/api/p2p/get-task', requireAuth, async (req: AuthedReq, res: Response) => {
+  app.get('/api/p2p/get-task', requireAuth, requireConsent('backgroundNode'), async (req: AuthedReq, res: Response) => {
     const parsed = getTaskNodeSchema.safeParse({ nodeId: req.query.nodeId });
     if (!parsed.success) return res.status(400).json({ message: 'nodeId required.' });
     try {
@@ -242,7 +243,7 @@ export function registerMaraAIRoutes(
   });
 
   /** POST /api/p2p/submit-result — browser node submits computed result + earns XP/credits. */
-  app.post('/api/p2p/submit-result', requireAuth, async (req: AuthedReq, res: Response) => {
+  app.post('/api/p2p/submit-result', requireAuth, requireConsent('backgroundNode'), async (req: AuthedReq, res: Response) => {
     const parsed = submitResultSchema.safeParse(req.body ?? {});
     if (!parsed.success) return res.status(400).json({ message: 'Invalid result.', errors: parsed.error.flatten() });
     try {
@@ -259,7 +260,7 @@ export function registerMaraAIRoutes(
   });
 
   /** POST /api/p2p/go-offline — browser node signals it's going offline (user returned). */
-  app.post('/api/p2p/go-offline', requireAuth, async (req: AuthedReq, res: Response) => {
+  app.post('/api/p2p/go-offline', requireAuth, requireConsent('backgroundNode'), async (req: AuthedReq, res: Response) => {
     const parsed = goOfflineSchema.safeParse(req.body ?? {});
     if (!parsed.success) return res.status(400).json({ message: 'nodeId required.' });
     try {

@@ -594,9 +594,10 @@ sqlite.exec(`
     type TEXT NOT NULL CHECK(type IN ('maraAnalysis','missionGeneration','contentProcessing','knowledgeBase')),
     payload TEXT NOT NULL DEFAULT '{}',
     status TEXT NOT NULL DEFAULT 'pending'
-      CHECK(status IN ('pending','assigned','completed','failed')),
+      CHECK(status IN ('pending','running','assigned','completed','failed')),
     assigned_node TEXT,
     assigned_user_id TEXT,
+    claimed_by TEXT,
     assigned_at INTEGER,
     result TEXT,
     created_at INTEGER DEFAULT (unixepoch()) NOT NULL,
@@ -606,6 +607,8 @@ sqlite.exec(`
     ON p2p_tasks(status, created_at);
   CREATE INDEX IF NOT EXISTS idx_p2p_tasks_node
     ON p2p_tasks(assigned_node);
+  CREATE INDEX IF NOT EXISTS idx_p2p_tasks_claimed_by
+    ON p2p_tasks(claimed_by, status);
 
   -- Viral referral loop (active >= 70 users).
   -- Each user gets one unique referral code; referrals table tracks attribution.

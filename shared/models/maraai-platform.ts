@@ -156,6 +156,8 @@ export const p2pTasks = sqliteTable(
     assignedNode: text('assigned_node'),
     /** userId of the node owner (for credit/XP award). */
     assignedUserId: text('assigned_user_id'),
+    /** Canonical task owner used for guarded result submission. */
+    claimedBy: text('claimed_by'),
     assignedAt: integer('assigned_at', { mode: 'timestamp' }),
     /** JSON result submitted by the node. */
     result: text('result'),
@@ -173,7 +175,7 @@ export const p2pTasks = sqliteTable(
 export type P2PTask = typeof p2pTasks.$inferSelect;
 export type NewP2PTask = typeof p2pTasks.$inferInsert;
 export type P2PTaskType = 'maraAnalysis' | 'missionGeneration' | 'contentProcessing' | 'knowledgeBase';
-export type P2PTaskStatus = 'pending' | 'assigned' | 'completed' | 'failed';
+export type P2PTaskStatus = 'pending' | 'running' | 'assigned' | 'completed' | 'failed';
 
 export type ConsentRecord = typeof consentRecords.$inferSelect;
 export type NewConsentRecord = typeof consentRecords.$inferInsert;

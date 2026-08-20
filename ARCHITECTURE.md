@@ -56,8 +56,10 @@ maraai/
 │   └── vite.config.ts            # builds to ../dist/public
 │
 ├── server/                       # Express backend (TypeScript, ESM)
-│   ├── index.ts                  # app bootstrap, migrations, WS, listen
+│   ├── index.ts                  # thin bootstrap/orchestration entrypoint
 │   ├── routes.ts                 # route registration + admin dashboard
+│   ├── bootstrap/                # migrations, seeders, background jobs, logging
+│   ├── websocket/                # WS setup + chat/P2P/compute handlers
 │   ├── db.ts                     # SQLite handle + Drizzle + bootstrap DDL
 │   ├── auth.ts                   # express-session + connect-sqlite3, bcrypt
 │   ├── ai.ts / llm.ts            # thin wrappers over lib/provider-router
@@ -137,6 +139,14 @@ Each file owns a feature's HTTP handlers, e.g. `chat.ts`, `reels.ts`,
 A `WebSocketServer` (`ws`) attached to the HTTP server handles live chat and
 P2P (WebRTC) signaling for the hybrid video/compute features.
 
+- `server/websocket/index.ts` enforces a **1 MB max payload** and a
+  **distributed per-user 100 messages/minute** limiter before any WS business
+  logic runs.
+- `server/websocket/p2p-signaling.ts` re-checks **P2P consent**, kill-switch
+  state, and relationship eligibility before relaying any offer/answer/candidate.
+- Browser compute registration lives in `server/websocket/compute-handler.ts`;
+  chat handling lives in `server/websocket/chat-handler.ts`.
+
 ---
 
 ## Build & Deploy
@@ -151,6 +161,12 @@ P2P (WebRTC) signaling for the hybrid video/compute features.
   Dockerfile and sets `startCommand: npm run start`, `healthcheckPath:
   /api/health`.
 - Migrations run at boot inside `server/index.ts` before the server listens.
+- Boot is split into bounded modules:
+  - `server/bootstrap/migrations.ts`
+  - `server/bootstrap/seed.ts`
+  - `server/bootstrap/jobs.ts`
+  - `server/bootstrap/request-logging.ts`
+  - `server/bootstrap/process-safety.ts`
 
 ### Local development
 ```bash
@@ -179,6 +195,26 @@ a suite of **smoke tests** (`scripts/smoke-*.mjs`) against a freshly-booted
 server (runtime, credits, growth, auth, admin-chat, mara-cli, code-explorer,
 audit-p2). There is currently **no** unit/component/E2E layer and frontend lint
 is not yet enforced in CI — see the repair roadmap.
+
+Security automation also runs in `.github/workflows/security.yml`:
+- `npm audit --audit-level=moderate`
+- GitHub CodeQL for JavaScript/TypeScript
+- Trivy filesystem SCA scan
+- Dependabot weekly updates for npm + GitHub Actions (`.github/dependabot.yml`)
+
+---
+
+## Security Practices
+
+- **Outbound URL fetches** must go through `server/lib/ssrf-guard.ts`, which
+  enforces HTTPS-only access, a domain allowlist, DNS resolution checks, blocks
+  private/link-local/loopback addresses, disables redirects, and caps requests
+  at 5 seconds.
+- **P2P/browser-compute tasks** are claimed atomically and completed only by the
+  owning user/node pair; the task state machine is `pending → running → completed`.
+- **Backups** use SQLite `VACUUM INTO`, run an integrity check on every snapshot,
+  keep 7 daily + 4 weekly copies, optionally upload to S3-compatible storage,
+  and run a monthly restore drill marker.
 
 ---
 

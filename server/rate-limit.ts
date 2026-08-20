@@ -1,7 +1,11 @@
 import type { Request, Response, NextFunction } from 'express';
+import { incrementRedisWindowCounter } from './lib/redis-rate-limit.js';
 
 const RATE_LIMIT_WINDOW_MS = 60 * 1000;
 const RATE_LIMIT_MAX_MESSAGES = 10;
+const websocketFallbackBuckets = new Map<string, number[]>();
+const WS_RATE_LIMIT_WINDOW_MS = 60 * 1000;
+const WS_RATE_LIMIT_MAX_MESSAGES = 100;
 
 const userMessageTimestamps = new Map<string, number[]>();
 
@@ -21,6 +25,38 @@ export function checkRateLimit(
 
   timestamps.push(now);
   userMessageTimestamps.set(userId, timestamps);
+  return { allowed: true };
+}
+
+export async function checkWebSocketRateLimit(
+  userId: string,
+): Promise<{ allowed: boolean; retryAfterMs?: number }> {
+  const windowKey = `ws:${userId}:${Math.floor(Date.now() / WS_RATE_LIMIT_WINDOW_MS)}`;
+  try {
+    const redisCount = await incrementRedisWindowCounter(windowKey, WS_RATE_LIMIT_WINDOW_MS);
+    if (typeof redisCount === 'number') {
+      if (redisCount > WS_RATE_LIMIT_MAX_MESSAGES) {
+        return { allowed: false, retryAfterMs: WS_RATE_LIMIT_WINDOW_MS };
+      }
+      return { allowed: true };
+    }
+  } catch (err) {
+    console.warn('[rate-limit:websocket] Redis limiter failed, falling back to memory:', err);
+  }
+
+  const now = Date.now();
+  let timestamps = websocketFallbackBuckets.get(userId) || [];
+  timestamps = timestamps.filter((ts) => now - ts < WS_RATE_LIMIT_WINDOW_MS);
+
+  if (timestamps.length >= WS_RATE_LIMIT_MAX_MESSAGES) {
+    const oldestTimestamp = Math.min(...timestamps);
+    const retryAfterMs = WS_RATE_LIMIT_WINDOW_MS - (now - oldestTimestamp);
+    websocketFallbackBuckets.set(userId, timestamps);
+    return { allowed: false, retryAfterMs };
+  }
+
+  timestamps.push(now);
+  websocketFallbackBuckets.set(userId, timestamps);
   return { allowed: true };
 }
 
