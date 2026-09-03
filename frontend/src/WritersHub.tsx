@@ -122,6 +122,93 @@ function buildExcerpt(html: string, max = 240): string {
   return t.length > max ? t.slice(0, max - 1) + '…' : t;
 }
 
+function toDownloadFileName(title: string): string {
+  const base = title
+    .toLowerCase()
+    .normalize('NFKD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '');
+  return `${base || 'mara-document'}.html`;
+}
+
+function buildDownloadableDocument({
+  title,
+  author,
+  category,
+  visibility,
+  bodyHtml,
+}: {
+  title: string;
+  author?: string | null;
+  category?: string | null;
+  visibility?: string | null;
+  bodyHtml: string;
+}): string {
+  const safeTitle = escapeHtml(title.trim() || 'Untitled');
+  const meta = [author, category, visibility].filter(Boolean).map((item) => escapeHtml(String(item)));
+  const metaLine = meta.length > 0 ? `<p class="meta">${meta.join(' · ')}</p>` : '';
+  return `<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>${safeTitle}</title>
+    <style>
+      :root { color-scheme: light; }
+      body {
+        margin: 0;
+        font-family: Inter, Arial, sans-serif;
+        background: #f6f3ff;
+        color: #18181b;
+      }
+      main {
+        max-width: 860px;
+        margin: 0 auto;
+        padding: 48px 24px 64px;
+        background: #ffffff;
+      }
+      h1 {
+        margin: 0 0 12px;
+        color: #6d28d9;
+        line-height: 1.15;
+      }
+      .meta {
+        margin: 0 0 32px;
+        color: #6b7280;
+        font-size: 14px;
+      }
+      img, video, iframe {
+        max-width: 100%;
+      }
+      blockquote {
+        margin: 24px 0;
+        padding-left: 16px;
+        border-left: 4px solid #c4b5fd;
+        color: #3f3f46;
+      }
+      pre, code {
+        font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+      }
+      pre {
+        white-space: pre-wrap;
+        background: #f5f3ff;
+        border-radius: 12px;
+        padding: 16px;
+        overflow-x: auto;
+      }
+    </style>
+  </head>
+  <body>
+    <main>
+      <h1>${safeTitle}</h1>
+      ${metaLine}
+      ${bodyHtml}
+    </main>
+  </body>
+</html>`;
+}
+
 export const WritersHub: React.FC<Props> = ({ onClose }) => {
   const { user } = useAuth();
   const { t, i18n } = useTranslation();
@@ -312,6 +399,37 @@ export const WritersHub: React.FC<Props> = ({ onClose }) => {
 
   const deleteDraft = (id: string) => {
     setDrafts((prev) => prev.filter((d) => d.id !== id));
+  };
+
+  const downloadDocument = ({
+    title: docTitle,
+    author,
+    category: docCategory,
+    visibility: docVisibility,
+    bodyHtml,
+  }: {
+    title: string;
+    author?: string | null;
+    category?: string | null;
+    visibility?: string | null;
+    bodyHtml: string;
+  }) => {
+    const cleanBody = sanitizeRichHtml(bodyHtml);
+    if (!docTitle.trim() || !htmlToPlainText(cleanBody)) return;
+    const doc = buildDownloadableDocument({
+      title: docTitle,
+      author,
+      category: docCategory,
+      visibility: docVisibility,
+      bodyHtml: cleanBody,
+    });
+    const blob = new Blob([doc], { type: 'text/html;charset=utf-8' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = toDownloadFileName(docTitle);
+    a.click();
+    URL.revokeObjectURL(url);
   };
 
   const openReading = async (work: ApiArticle) => {
@@ -688,6 +806,19 @@ export const WritersHub: React.FC<Props> = ({ onClose }) => {
               <button onClick={() => saveDraft(false)} className="writers-button secondary">
                 {t('writers.saveDraft')}
               </button>
+              <button
+                onClick={() => downloadDocument({
+                  title,
+                  author: user?.name,
+                  category: translateCategory(category),
+                  visibility: t(`writers.visibility.${visibility}`),
+                  bodyHtml: content,
+                })}
+                disabled={!title.trim() || !htmlToPlainText(content)}
+                className="writers-button secondary"
+              >
+                {t('writers.downloadDocument', '⬇ Download document')}
+              </button>
             </div>
           </div>
         )}
@@ -857,6 +988,20 @@ export const WritersHub: React.FC<Props> = ({ onClose }) => {
                   disabled={shareBusyId === readingWork.id}
                 >
                   {shareBusyId === readingWork.id ? '…' : '📣 ' + t('writers.shareOnYou', 'Share on You')}
+                </button>
+              )}
+              {!readingError && !!readingBody && (
+                <button
+                  className="writers-share-btn"
+                  onClick={() => downloadDocument({
+                    title: readingWork.title,
+                    author: readingWork.penName,
+                    category: translateCategory(readingWork.category),
+                    visibility: t(`writers.visibility.${readingWork.visibility}`),
+                    bodyHtml: readingBody,
+                  })}
+                >
+                  {t('writers.downloadDocument', '⬇ Download document')}
                 </button>
               )}
               <ShareButton
